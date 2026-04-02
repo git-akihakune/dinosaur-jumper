@@ -9,6 +9,7 @@ import { PhaseManager } from "../systems/PhaseManager";
 import { Platform } from "../entities/Platform";
 import { Collectible } from "../entities/Collectible";
 import { PowerUp, PowerUpType } from "../entities/PowerUp";
+import { InputManager } from "../systems/InputManager";
 
 type GameState = "idle" | "playing" | "dead";
 
@@ -28,8 +29,7 @@ export class GameScene extends Phaser.Scene {
   private cloudTimer = 0;
 
   // Input
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private spaceKey!: Phaser.Input.Keyboard.Key;
+  private inputManager!: InputManager;
 
   // Center message
   private centerText!: Phaser.GameObjects.Text;
@@ -92,8 +92,7 @@ export class GameScene extends Phaser.Scene {
     this.dino = new Dino(this);
 
     // Input
-    this.cursors = this.input.keyboard!.createCursorKeys();
-    this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.inputManager = new InputManager(this);
 
     // Score display
     this.hiScore = parseInt(localStorage.getItem("hiScore") || "0", 10);
@@ -125,6 +124,10 @@ export class GameScene extends Phaser.Scene {
     this.phaseManager.on("unlock:powerups", () => {
       this.powerUpsUnlocked = true;
     });
+    this.phaseManager.on("unlock:lanes", () => {
+      this.inputManager.unlockLanes();
+      this.dino.enableLanes();
+    });
 
     this.resetGame();
   }
@@ -133,14 +136,14 @@ export class GameScene extends Phaser.Scene {
     const dt = delta / 1000;
 
     if (this.gameState === "idle") {
-      if (this.spaceKey.isDown || this.cursors.up.isDown) {
+      if (this.inputManager.isStartPressed()) {
         this.startGame();
       }
       return;
     }
 
     if (this.gameState === "dead") {
-      if (this.spaceKey.isDown || this.cursors.up.isDown) {
+      if (this.inputManager.isStartPressed()) {
         this.resetGame();
         this.startGame();
       }
@@ -150,10 +153,14 @@ export class GameScene extends Phaser.Scene {
     // --- Playing ---
 
     // Input
-    if (this.spaceKey.isDown || this.cursors.up.isDown) {
-      this.dino.jump();
+    const input = this.inputManager.getState();
+    if (this.phaseManager.isUnlocked("unlock:lanes")) {
+      if (input.laneUp) this.dino.switchLane("up");
+      if (input.laneDown) this.dino.switchLane("down");
+    } else {
+      if (input.jump) this.dino.jump();
+      this.dino.duck(input.duck);
     }
-    this.dino.duck(this.cursors.down.isDown);
 
     // Speed
     this.speed = Math.min(MAX_SPEED, this.speed + SPEED_ACCEL * dt);
