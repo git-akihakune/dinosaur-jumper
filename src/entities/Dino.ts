@@ -8,8 +8,6 @@ export type DinoState = "idle" | "running" | "jumping" | "ducking" | "dead";
 
 export class Dino {
   sprite: Phaser.GameObjects.Sprite;
-  private scene: Phaser.Scene;
-
   state: DinoState = "idle";
   velocityY = 0;
   isOnGround = true;
@@ -23,7 +21,6 @@ export class Dino {
   private lanesActive = false;
 
   constructor(scene: Phaser.Scene) {
-    this.scene = scene;
     this.sprite = scene.add.sprite(DINO_X, GROUND_Y - DINO_HEIGHT, "dino-run1");
     this.sprite.setOrigin(0, 0);
   }
