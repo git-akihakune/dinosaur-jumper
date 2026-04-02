@@ -6,6 +6,7 @@ import { Obstacle } from "../entities/Obstacle";
 import { aabbOverlap } from "../systems/Physics";
 import { ChromeOverlay } from "../ui/ChromeOverlay";
 import { PhaseManager } from "../systems/PhaseManager";
+import { Platform } from "../entities/Platform";
 
 type GameState = "idle" | "playing" | "dead";
 
@@ -47,6 +48,11 @@ export class GameScene extends Phaser.Scene {
   private skyGradient!: Phaser.GameObjects.Graphics;
   private parallaxLayers: Phaser.GameObjects.Image[] = [];
 
+  // Platforms
+  private platforms: Platform[] = [];
+  private platformsUnlocked = false;
+  private distSinceLastPlatform = 0;
+
   constructor() {
     super({ key: "GameScene" });
   }
@@ -54,6 +60,7 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     this.textureGen = new TextureGen(this);
     this.textureGen.generate();
+    this.textureGen.generatePlatform();
 
     // Sky gradient (hidden initially)
     this.skyGradient = this.add.graphics();
@@ -90,6 +97,9 @@ export class GameScene extends Phaser.Scene {
     this.phaseManager = new PhaseManager();
     this.phaseManager.on("unlock:skyColor", () => {
       this.createParallaxLayers();
+    });
+    this.phaseManager.on("unlock:platforms", () => {
+      this.platformsUnlocked = true;
     });
 
     this.resetGame();
@@ -141,6 +151,10 @@ export class GameScene extends Phaser.Scene {
     this.updateObstacles(dt);
     this.checkCollisions();
 
+    // Platforms
+    this.spawnPlatforms(dt);
+    this.updatePlatforms(dt);
+
     // Score display
     this.scoreText.setText(String(Math.floor(this.score)).padStart(5, "0"));
     if (this.hiScore > 0) {
@@ -186,6 +200,10 @@ export class GameScene extends Phaser.Scene {
     this.dino.reset();
     for (const obs of this.obstacles) obs.destroy();
     this.obstacles = [];
+    for (const p of this.platforms) p.destroy();
+    this.platforms = [];
+    this.platformsUnlocked = false;
+    this.distSinceLastPlatform = 0;
     this.centerText.setText("Press SPACE to start").setVisible(true);
     this.phaseManager.reset();
   }
@@ -250,6 +268,37 @@ export class GameScene extends Phaser.Scene {
         return;
       }
     }
+  }
+
+  private spawnPlatforms(dt: number): void {
+    if (!this.platformsUnlocked) return;
+    this.distSinceLastPlatform += this.speed * dt;
+    if (this.distSinceLastPlatform >= Phaser.Math.Between(500, 900)) {
+      this.distSinceLastPlatform = 0;
+      const y = Phaser.Math.Between(GROUND_Y - 90, GROUND_Y - 50);
+      const platform = new Platform(this, CANVAS_WIDTH + 10, y);
+      this.platforms.push(platform);
+    }
+  }
+
+  private updatePlatforms(dt: number): void {
+    for (let i = this.platforms.length - 1; i >= 0; i--) {
+      this.platforms[i].update(dt, this.speed);
+      if (this.platforms[i].isOffScreen()) {
+        this.platforms[i].destroy();
+        this.platforms.splice(i, 1);
+      }
+    }
+
+    // Platform landing check
+    if (this.dino.velocityY > 0) {
+      for (const p of this.platforms) {
+        this.dino.landOnPlatform(p.topY);
+      }
+    }
+
+    // Check if dino walked off platform
+    this.dino.checkFalling(this.platforms);
   }
 
   private updateSkyGradient(progress: number): void {
