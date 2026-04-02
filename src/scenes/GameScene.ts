@@ -7,6 +7,8 @@ import { aabbOverlap } from "../systems/Physics";
 import { ChromeOverlay } from "../ui/ChromeOverlay";
 import { PhaseManager } from "../systems/PhaseManager";
 import { Platform } from "../entities/Platform";
+import { Collectible } from "../entities/Collectible";
+import { PowerUp, PowerUpType } from "../entities/PowerUp";
 
 type GameState = "idle" | "playing" | "dead";
 
@@ -53,6 +55,20 @@ export class GameScene extends Phaser.Scene {
   private platformsUnlocked = false;
   private distSinceLastPlatform = 0;
 
+  // Collectibles
+  private collectibles: Collectible[] = [];
+  private collectiblesUnlocked = false;
+  private distSinceLastCollectible = 0;
+
+  // Power-ups
+  private powerUps: PowerUp[] = [];
+  private powerUpsUnlocked = false;
+  private distSinceLastPowerUp = 0;
+  private activeShield = false;
+  private activeMagnetTime = 0;
+  private activeAutoPlayTime = 0;
+  private shieldIndicator?: Phaser.GameObjects.Graphics;
+
   constructor() {
     super({ key: "GameScene" });
   }
@@ -61,6 +77,8 @@ export class GameScene extends Phaser.Scene {
     this.textureGen = new TextureGen(this);
     this.textureGen.generate();
     this.textureGen.generatePlatform();
+    this.textureGen.generateCollectible();
+    this.textureGen.generatePowerUps();
 
     // Sky gradient (hidden initially)
     this.skyGradient = this.add.graphics();
@@ -100,6 +118,12 @@ export class GameScene extends Phaser.Scene {
     });
     this.phaseManager.on("unlock:platforms", () => {
       this.platformsUnlocked = true;
+    });
+    this.phaseManager.on("unlock:collectibles", () => {
+      this.collectiblesUnlocked = true;
+    });
+    this.phaseManager.on("unlock:powerups", () => {
+      this.powerUpsUnlocked = true;
     });
 
     this.resetGame();
@@ -155,6 +179,14 @@ export class GameScene extends Phaser.Scene {
     this.spawnPlatforms(dt);
     this.updatePlatforms(dt);
 
+    // Collectibles
+    this.spawnCollectibles(dt);
+    this.updateCollectibles(dt);
+
+    // Power-ups
+    this.spawnPowerUps(dt);
+    this.updatePowerUps(dt);
+
     // Score display
     this.scoreText.setText(String(Math.floor(this.score)).padStart(5, "0"));
     if (this.hiScore > 0) {
@@ -204,6 +236,18 @@ export class GameScene extends Phaser.Scene {
     this.platforms = [];
     this.platformsUnlocked = false;
     this.distSinceLastPlatform = 0;
+    for (const c of this.collectibles) c.destroy();
+    this.collectibles = [];
+    this.collectiblesUnlocked = false;
+    this.distSinceLastCollectible = 0;
+    for (const pu of this.powerUps) pu.destroy();
+    this.powerUps = [];
+    this.powerUpsUnlocked = false;
+    this.distSinceLastPowerUp = 0;
+    this.activeShield = false;
+    this.activeMagnetTime = 0;
+    this.activeAutoPlayTime = 0;
+    if (this.shieldIndicator) { this.shieldIndicator.destroy(); this.shieldIndicator = undefined; }
     this.centerText.setText("Press SPACE to start").setVisible(true);
     this.phaseManager.reset();
   }
@@ -264,9 +308,121 @@ export class GameScene extends Phaser.Scene {
     const dinoBox = this.dino.hitbox;
     for (const obs of this.obstacles) {
       if (aabbOverlap(dinoBox, obs.hitbox)) {
+        if (this.activeShield) {
+          this.activeShield = false;
+          if (this.shieldIndicator) {
+            this.shieldIndicator.destroy();
+            this.shieldIndicator = undefined;
+          }
+          obs.destroy();
+          this.obstacles.splice(this.obstacles.indexOf(obs), 1);
+          return;
+        }
         this.gameOver();
         return;
       }
+    }
+  }
+
+  private spawnCollectibles(dt: number): void {
+    if (!this.collectiblesUnlocked) return;
+    this.distSinceLastCollectible += this.speed * dt;
+    if (this.distSinceLastCollectible >= Phaser.Math.Between(200, 500)) {
+      this.distSinceLastCollectible = 0;
+      let y = GROUND_Y - 30;
+      if (this.platforms.length > 0 && Math.random() < 0.3) {
+        const p = this.platforms[this.platforms.length - 1];
+        y = p.topY - 20;
+      }
+      const coin = new Collectible(this, CANVAS_WIDTH + 10, y);
+      this.collectibles.push(coin);
+    }
+  }
+
+  private updateCollectibles(dt: number): void {
+    const dinoBox = this.dino.hitbox;
+    for (let i = this.collectibles.length - 1; i >= 0; i--) {
+      const c = this.collectibles[i];
+      c.update(dt, this.speed);
+
+      // Magnet effect
+      if (this.activeMagnetTime > 0) {
+        const dx = this.dino.x - c.sprite.x;
+        const dy = this.dino.y - c.sprite.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 120) {
+          c.sprite.x += dx * 3 * dt;
+          c.sprite.y += dy * 3 * dt;
+        }
+      }
+
+      if (!c.collected && aabbOverlap(dinoBox, c.hitbox)) {
+        c.collect();
+        this.score += 10;
+        this.collectibles.splice(i, 1);
+      } else if (c.isOffScreen()) {
+        c.destroy();
+        this.collectibles.splice(i, 1);
+      }
+    }
+  }
+
+  private spawnPowerUps(dt: number): void {
+    if (!this.powerUpsUnlocked) return;
+    this.distSinceLastPowerUp += this.speed * dt;
+    if (this.distSinceLastPowerUp >= Phaser.Math.Between(1500, 3000)) {
+      this.distSinceLastPowerUp = 0;
+      const type = PowerUp.randomType();
+      const pu = new PowerUp(this, CANVAS_WIDTH + 10, type);
+      this.powerUps.push(pu);
+    }
+  }
+
+  private updatePowerUps(dt: number): void {
+    const dinoBox = this.dino.hitbox;
+    for (let i = this.powerUps.length - 1; i >= 0; i--) {
+      const pu = this.powerUps[i];
+      pu.update(dt, this.speed);
+      if (!pu.collected && aabbOverlap(dinoBox, pu.hitbox)) {
+        this.activatePowerUp(pu.type, pu.duration);
+        pu.collect();
+        this.powerUps.splice(i, 1);
+      } else if (pu.isOffScreen()) {
+        pu.destroy();
+        this.powerUps.splice(i, 1);
+      }
+    }
+
+    // Decrement timers
+    if (this.activeMagnetTime > 0) this.activeMagnetTime -= dt * 1000;
+    if (this.activeAutoPlayTime > 0) this.activeAutoPlayTime -= dt * 1000;
+
+    // Shield visual
+    if (this.activeShield) {
+      if (!this.shieldIndicator) {
+        this.shieldIndicator = this.add.graphics();
+        this.shieldIndicator.setDepth(4);
+      }
+      this.shieldIndicator.clear();
+      this.shieldIndicator.lineStyle(2, 0x4488ff, 0.6);
+      this.shieldIndicator.strokeRect(
+        this.dino.x - 4, this.dino.y - 4,
+        this.dino.width + 8, this.dino.height + 8
+      );
+    }
+  }
+
+  private activatePowerUp(type: PowerUpType, duration: number): void {
+    switch (type) {
+      case "shield":
+        this.activeShield = true;
+        break;
+      case "magnet":
+        this.activeMagnetTime = duration;
+        break;
+      case "autoplay":
+        this.activeAutoPlayTime = duration;
+        break;
     }
   }
 
