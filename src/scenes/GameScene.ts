@@ -5,6 +5,7 @@ import { Dino } from "../entities/Dino";
 import { Obstacle } from "../entities/Obstacle";
 import { aabbOverlap } from "../systems/Physics";
 import { ChromeOverlay } from "../ui/ChromeOverlay";
+import { PhaseManager } from "../systems/PhaseManager";
 
 type GameState = "idle" | "playing" | "dead";
 
@@ -40,6 +41,7 @@ export class GameScene extends Phaser.Scene {
   private scoreText!: Phaser.GameObjects.Text;
   private hiScoreText!: Phaser.GameObjects.Text;
   private chromeOverlay!: ChromeOverlay;
+  private phaseManager!: PhaseManager;
 
   constructor() {
     super({ key: "GameScene" });
@@ -77,6 +79,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     this.chromeOverlay = new ChromeOverlay();
+    this.phaseManager = new PhaseManager();
 
     this.resetGame();
   }
@@ -133,6 +136,7 @@ export class GameScene extends Phaser.Scene {
       this.hiScoreText.setText("HI " + String(this.hiScore).padStart(5, "0"));
     }
     this.chromeOverlay.update(this.score);
+    this.phaseManager.update(this.score);
   }
 
   private startGame(): void {
@@ -150,6 +154,7 @@ export class GameScene extends Phaser.Scene {
     for (const obs of this.obstacles) obs.destroy();
     this.obstacles = [];
     this.centerText.setText("Press SPACE to start").setVisible(true);
+    this.phaseManager.reset();
   }
 
   private scrollGround(dt: number): void {
