@@ -4,6 +4,7 @@ import { TextureGen } from "../graphics/TextureGen";
 import { Dino } from "../entities/Dino";
 import { Obstacle } from "../entities/Obstacle";
 import { aabbOverlap } from "../systems/Physics";
+import { ChromeOverlay } from "../ui/ChromeOverlay";
 
 type GameState = "idle" | "playing" | "dead";
 
@@ -38,6 +39,7 @@ export class GameScene extends Phaser.Scene {
   private hiScore = 0;
   private scoreText!: Phaser.GameObjects.Text;
   private hiScoreText!: Phaser.GameObjects.Text;
+  private chromeOverlay!: ChromeOverlay;
 
   constructor() {
     super({ key: "GameScene" });
@@ -73,6 +75,8 @@ export class GameScene extends Phaser.Scene {
       color: "#535353",
       fontFamily: "monospace",
     }).setOrigin(0.5);
+
+    this.chromeOverlay = new ChromeOverlay();
 
     this.resetGame();
   }
@@ -128,6 +132,7 @@ export class GameScene extends Phaser.Scene {
     if (this.hiScore > 0) {
       this.hiScoreText.setText("HI " + String(this.hiScore).padStart(5, "0"));
     }
+    this.chromeOverlay.update(this.score);
   }
 
   private startGame(): void {
