@@ -3,7 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>Dinosaur Jumper</title>
+    <title>Dinosaur Jumper — The Browser Game That Evolves</title>
+    <meta name="description" content="Think you know the Chrome dinosaur game? Think again. Play the browser game that transforms as you play.">
+    <meta name="theme-color" content="#f7f7f7">
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="Dinosaur Jumper">
+    <meta property="og:description" content="The Chrome dino game... or is it? Play and find out.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="./og-image.png">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Dinosaur Jumper">
+    <meta name="twitter:description" content="The Chrome dino game... or is it? Play and find out.">
+    <meta name="twitter:image" content="./og-image.png">
+
+    <!-- PWA -->
+    <link rel="manifest" href="./manifest.json">
+    <link rel="apple-touch-icon" href="./icon-192.png">
+
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       body {
@@ -51,8 +70,14 @@
         .chrome-dino-icon { width: 40px; height: 34px; }
       }
     </style>
+
+    <noscript>
+      <p style="text-align:center;padding:40px;font-family:sans-serif;">
+        This game requires JavaScript to run. Please enable JavaScript in your browser.
+      </p>
+    </noscript>
   </head>
-  <body>
+  <body aria-label="Dinosaur Jumper game">
     <div id="chrome-overlay">
       <div class="chrome-icon">
         <div class="chrome-dino-icon"></div>
