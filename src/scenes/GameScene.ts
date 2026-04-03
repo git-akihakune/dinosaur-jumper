@@ -10,6 +10,9 @@ import { Platform } from "../entities/Platform";
 import { Collectible } from "../entities/Collectible";
 import { PowerUp, PowerUpType } from "../entities/PowerUp";
 import { InputManager } from "../systems/InputManager";
+import { AutoPlayAI } from "../systems/AutoPlayAI";
+import { HUD } from "../ui/HUD";
+import { GameOverScreen } from "../ui/GameOverScreen";
 
 type GameState = "idle" | "playing" | "dead";
 
@@ -19,6 +22,7 @@ export class GameScene extends Phaser.Scene {
   private gameState: GameState = "idle";
   private speed = INITIAL_SPEED;
   private score = 0;
+  private hiScore = 0;
 
   // Ground scrolling
   private ground1!: Phaser.GameObjects.Image;
@@ -31,20 +35,20 @@ export class GameScene extends Phaser.Scene {
   // Input
   private inputManager!: InputManager;
 
-  // Center message
-  private centerText!: Phaser.GameObjects.Text;
+  // UI
+  private startText!: Phaser.GameObjects.Text;
+  private hud!: HUD;
+  private gameOverScreen!: GameOverScreen;
+  private chromeOverlay!: ChromeOverlay;
+
+  // Systems
+  private phaseManager!: PhaseManager;
+  private autoPlayAI!: AutoPlayAI;
 
   // Obstacles
   private obstacles: Obstacle[] = [];
   private distSinceLastObstacle = 0;
   private nextObstacleGap = MIN_OBSTACLE_GAP;
-
-  // Score display
-  private hiScore = 0;
-  private scoreText!: Phaser.GameObjects.Text;
-  private hiScoreText!: Phaser.GameObjects.Text;
-  private chromeOverlay!: ChromeOverlay;
-  private phaseManager!: PhaseManager;
 
   // Visual evolution
   private skyGradient!: Phaser.GameObjects.Graphics;
@@ -94,24 +98,22 @@ export class GameScene extends Phaser.Scene {
     // Input
     this.inputManager = new InputManager(this);
 
-    // Score display
+    // UI
     this.hiScore = parseInt(localStorage.getItem("hiScore") || "0", 10);
-    this.hiScoreText = this.add.text(CANVAS_WIDTH - 10, 10, "", {
-      fontSize: "14px", color: "#888888", fontFamily: "monospace",
-    }).setOrigin(1, 0);
-    this.scoreText = this.add.text(CANVAS_WIDTH - 10, 28, "00000", {
-      fontSize: "14px", color: "#535353", fontFamily: "monospace",
-    }).setOrigin(1, 0);
-
-    // Center text
-    this.centerText = this.add.text(CANVAS_WIDTH / 2, 130, "Press SPACE to start", {
+    this.hud = new HUD(this);
+    this.gameOverScreen = new GameOverScreen(this);
+    this.startText = this.add.text(CANVAS_WIDTH / 2, 130, "Press SPACE to start", {
       fontSize: "16px",
       color: "#535353",
       fontFamily: "monospace",
-    }).setOrigin(0.5);
+    }).setOrigin(0.5).setDepth(10);
 
+    // Systems
     this.chromeOverlay = new ChromeOverlay();
     this.phaseManager = new PhaseManager();
+    this.autoPlayAI = new AutoPlayAI();
+
+    // Phase events
     this.phaseManager.on("unlock:skyColor", () => {
       this.createParallaxLayers();
     });
@@ -127,6 +129,11 @@ export class GameScene extends Phaser.Scene {
     this.phaseManager.on("unlock:lanes", () => {
       this.inputManager.unlockLanes();
       this.dino.enableLanes();
+    });
+
+    // A key for auto-play toggle
+    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A).on("down", () => {
+      this.autoPlayAI.togglePermanentMode();
     });
 
     this.resetGame();
@@ -152,14 +159,22 @@ export class GameScene extends Phaser.Scene {
 
     // --- Playing ---
 
-    // Input
-    const input = this.inputManager.getState();
-    if (this.phaseManager.isUnlocked("unlock:lanes")) {
-      if (input.laneUp) this.dino.switchLane("up");
-      if (input.laneDown) this.dino.switchLane("down");
+    // Auto-play (temporary power-up or permanent mode)
+    const aiActive = this.activeAutoPlayTime > 0 || this.autoPlayAI.isActive;
+    if (aiActive) {
+      const aiInput = this.autoPlayAI.decide(this.dino, this.obstacles, this.speed);
+      if (aiInput.jump) this.dino.jump();
+      this.dino.duck(aiInput.duck);
     } else {
-      if (input.jump) this.dino.jump();
-      this.dino.duck(input.duck);
+      // Normal input
+      const input = this.inputManager.getState();
+      if (this.phaseManager.isUnlocked("unlock:lanes")) {
+        if (input.laneUp) this.dino.switchLane("up");
+        if (input.laneDown) this.dino.switchLane("down");
+      } else {
+        if (input.jump) this.dino.jump();
+        this.dino.duck(input.duck);
+      }
     }
 
     // Speed
@@ -194,11 +209,16 @@ export class GameScene extends Phaser.Scene {
     this.spawnPowerUps(dt);
     this.updatePowerUps(dt);
 
-    // Score display
-    this.scoreText.setText(String(Math.floor(this.score)).padStart(5, "0"));
-    if (this.hiScore > 0) {
-      this.hiScoreText.setText("HI " + String(this.hiScore).padStart(5, "0"));
-    }
+    // Auto-play unlock check
+    this.autoPlayAI.checkUnlock(this.score);
+
+    // HUD
+    this.hud.update(this.score, this.hiScore, {
+      shield: this.activeShield,
+      magnetTime: this.activeMagnetTime,
+      autoPlayTime: this.activeAutoPlayTime,
+    }, this.autoPlayAI.isActive);
+
     // Visual evolution
     const colorProgress = this.phaseManager.colorProgress(this.score);
     if (colorProgress > 0) {
@@ -207,6 +227,7 @@ export class GameScene extends Phaser.Scene {
         bg.setAlpha(colorProgress * 0.4);
       }
     }
+    this.hud.evolve(colorProgress);
 
     // Scroll parallax
     for (let i = 0; i < this.parallaxLayers.length; i++) {
@@ -228,7 +249,8 @@ export class GameScene extends Phaser.Scene {
   private startGame(): void {
     this.gameState = "playing";
     this.dino.state = "running";
-    this.centerText.setVisible(false);
+    this.startText.setVisible(false);
+    this.gameOverScreen.hide();
   }
 
   private resetGame(): void {
@@ -255,7 +277,8 @@ export class GameScene extends Phaser.Scene {
     this.activeMagnetTime = 0;
     this.activeAutoPlayTime = 0;
     if (this.shieldIndicator) { this.shieldIndicator.destroy(); this.shieldIndicator = undefined; }
-    this.centerText.setText("Press SPACE to start").setVisible(true);
+    this.startText.setText("Press SPACE to start").setVisible(true);
+    this.gameOverScreen.hide();
     this.phaseManager.reset();
   }
 
@@ -278,6 +301,7 @@ export class GameScene extends Phaser.Scene {
       this.cloudTimer = 0;
       const y = Phaser.Math.Between(40, 120);
       const cloud = this.add.image(CANVAS_WIDTH + 60, y, "cloud").setOrigin(0, 0);
+      cloud.setDepth(1);
       this.clouds.push(cloud);
     }
 
@@ -331,6 +355,35 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private spawnPlatforms(dt: number): void {
+    if (!this.platformsUnlocked) return;
+    this.distSinceLastPlatform += this.speed * dt;
+    if (this.distSinceLastPlatform >= Phaser.Math.Between(500, 900)) {
+      this.distSinceLastPlatform = 0;
+      const y = Phaser.Math.Between(GROUND_Y - 90, GROUND_Y - 50);
+      const platform = new Platform(this, CANVAS_WIDTH + 10, y);
+      this.platforms.push(platform);
+    }
+  }
+
+  private updatePlatforms(dt: number): void {
+    for (let i = this.platforms.length - 1; i >= 0; i--) {
+      this.platforms[i].update(dt, this.speed);
+      if (this.platforms[i].isOffScreen()) {
+        this.platforms[i].destroy();
+        this.platforms.splice(i, 1);
+      }
+    }
+
+    if (this.dino.velocityY > 0) {
+      for (const p of this.platforms) {
+        this.dino.landOnPlatform(p.topY);
+      }
+    }
+
+    this.dino.checkFalling(this.platforms);
+  }
+
   private spawnCollectibles(dt: number): void {
     if (!this.collectiblesUnlocked) return;
     this.distSinceLastCollectible += this.speed * dt;
@@ -352,7 +405,6 @@ export class GameScene extends Phaser.Scene {
       const c = this.collectibles[i];
       c.update(dt, this.speed);
 
-      // Magnet effect
       if (this.activeMagnetTime > 0) {
         const dx = this.dino.x - c.sprite.x;
         const dy = this.dino.y - c.sprite.y;
@@ -400,11 +452,9 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Decrement timers
     if (this.activeMagnetTime > 0) this.activeMagnetTime -= dt * 1000;
     if (this.activeAutoPlayTime > 0) this.activeAutoPlayTime -= dt * 1000;
 
-    // Shield visual
     if (this.activeShield) {
       if (!this.shieldIndicator) {
         this.shieldIndicator = this.add.graphics();
@@ -431,37 +481,6 @@ export class GameScene extends Phaser.Scene {
         this.activeAutoPlayTime = duration;
         break;
     }
-  }
-
-  private spawnPlatforms(dt: number): void {
-    if (!this.platformsUnlocked) return;
-    this.distSinceLastPlatform += this.speed * dt;
-    if (this.distSinceLastPlatform >= Phaser.Math.Between(500, 900)) {
-      this.distSinceLastPlatform = 0;
-      const y = Phaser.Math.Between(GROUND_Y - 90, GROUND_Y - 50);
-      const platform = new Platform(this, CANVAS_WIDTH + 10, y);
-      this.platforms.push(platform);
-    }
-  }
-
-  private updatePlatforms(dt: number): void {
-    for (let i = this.platforms.length - 1; i >= 0; i--) {
-      this.platforms[i].update(dt, this.speed);
-      if (this.platforms[i].isOffScreen()) {
-        this.platforms[i].destroy();
-        this.platforms.splice(i, 1);
-      }
-    }
-
-    // Platform landing check
-    if (this.dino.velocityY > 0) {
-      for (const p of this.platforms) {
-        this.dino.landOnPlatform(p.topY);
-      }
-    }
-
-    // Check if dino walked off platform
-    this.dino.checkFalling(this.platforms);
   }
 
   private updateSkyGradient(progress: number): void {
@@ -495,25 +514,22 @@ export class GameScene extends Phaser.Scene {
     const bg2 = this.add.image(CANVAS_WIDTH, 0, "parallax-bg").setOrigin(0, 0).setAlpha(0);
     this.parallaxLayers = [bg1, bg2];
 
-    // Depth ordering
     this.skyGradient.setDepth(0);
     bg1.setDepth(1);
     bg2.setDepth(1);
     this.ground1.setDepth(2);
     this.ground2.setDepth(2);
     this.dino.sprite.setDepth(3);
-    this.scoreText.setDepth(5);
-    this.hiScoreText.setDepth(5);
-    this.centerText.setDepth(5);
   }
 
   private gameOver(): void {
     this.gameState = "dead";
     this.dino.die();
-    if (this.score > this.hiScore) {
+    const isNewHi = this.score > this.hiScore;
+    if (isNewHi) {
       this.hiScore = Math.floor(this.score);
       localStorage.setItem("hiScore", String(this.hiScore));
     }
-    this.centerText.setText("GAME OVER - Press SPACE").setVisible(true);
+    this.gameOverScreen.show(this.score, isNewHi);
   }
 }
