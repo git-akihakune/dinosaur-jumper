@@ -11,17 +11,34 @@ npm run build        # typecheck (tsc) then production build → dist/
 npm run preview      # serve the production build locally
 ```
 
-There are no tests or linting configured.
+No tests or linting configured.
 
 ## Architecture
 
-Chrome dinosaur game clone using **Phaser 3 + TypeScript + Vite**.
+Deceptive Chrome dino clone that evolves into a retro platformer using **Phaser 3 + TypeScript + Vite**.
 
 - `src/main.ts` — Phaser game config (800×300 canvas, single scene)
-- `src/scenes/GameScene.ts` — all game logic in one scene class:
-  - **Pixel-art textures** generated programmatically via Phaser Graphics API (no external assets)
-  - **Obstacles**: cacti (sm/md/lg) and birds (lo/hi) with AABB collision detection
-  - **Auto-play AI**: look-ahead algorithm that calculates time-to-obstacle and jumps within a reaction threshold (`AUTOPLAY_REACT_MS`). Toggle with **A** key.
-  - Game constants (speed, gravity, jump velocity, gaps) are at the top of the file
+- `src/config/constants.ts` — all tunable game constants and score thresholds
+- `src/scenes/GameScene.ts` — main scene orchestrating all systems
+- `src/systems/PhaseManager.ts` — score-based evolution event emitter
+- `src/systems/InputManager.ts` — keyboard + touch input with progressive unlocks
+- `src/systems/Physics.ts` — AABB collision detection
+- `src/systems/AutoPlayAI.ts` — look-ahead AI for auto-play
+- `src/entities/` — Dino, Obstacle, Platform, Collectible, PowerUp
+- `src/graphics/TextureGen.ts` — procedural pixel-art sprite generation
+- `src/ui/ChromeOverlay.ts` — fake Chrome error page DOM overlay
+- `src/ui/HUD.ts` — score display, power-up indicators
+- `src/ui/GameOverScreen.ts` — game over / restart screen
 
-The game is entirely client-side with no backend. Build output is a static `dist/` folder.
+### Game Evolution
+
+Score thresholds in `constants.ts` control when new elements appear:
+- 0-200: Classic Chrome dino (monochrome)
+- 200-1000: Color evolves, Chrome overlay fades, parallax appears
+- 600+: Platforms
+- 1200+: Collectibles
+- 1500+: Power-ups (shield, magnet, auto-play)
+- 2000+: Lane system
+- 2500+: Permanent auto-play unlock
+
+PWA-enabled with offline support. All sprites procedurally generated (no external assets).
